@@ -8,7 +8,10 @@
 //!
 //! Be careful when you see `__switch` ASM function in `switch.S`. Control flow around this function
 //! might not be what you expect.
-
+//! Task management module
+//!
+//! Handles task scheduling and context switching
+use core::cell::RefMut;  // 在文件顶部添加
 mod context;
 mod switch;
 #[allow(clippy::module_inception)]
@@ -20,9 +23,9 @@ use crate::sync::UPSafeCell;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
-
+use alloc::vec::Vec;
 pub use context::TaskContext;
-
+use alloc::collections::BTreeMap;
 /// The task manager, where all the tasks are managed.
 ///
 /// Functions implemented on `TaskManager` deals with all task state transitions
@@ -42,28 +45,43 @@ pub struct TaskManager {
 /// Inner of Task Manager
 pub struct TaskManagerInner {
     /// task list
-    tasks: [TaskControlBlock; MAX_APP_NUM],
+    pub tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
-    current_task: usize,
+    pub current_task: usize,
 }
-
+ 
 lazy_static! {
-    /// Global variable: TASK_MANAGER
+///
+///
     pub static ref TASK_MANAGER: TaskManager = {
         let num_app = get_num_app();
-        let mut tasks = [TaskControlBlock {
-            task_cx: TaskContext::zero_init(),
-            task_status: TaskStatus::UnInit,
-        }; MAX_APP_NUM];
-        for (i, task) in tasks.iter_mut().enumerate() {
-            task.task_cx = TaskContext::goto_restore(init_app_cx(i));
-            task.task_status = TaskStatus::Ready;
+        let mut tasks = Vec::new();  // 改用 Vec 动态构建
+        
+        for i in 0..MAX_APP_NUM {
+            // 初始化每个 TaskControlBlock
+            let mut task = TaskControlBlock {
+                task_cx: TaskContext::zero_init(),
+                task_status: TaskStatus::UnInit,
+                syscall_counts: BTreeMap::new(),  // 新增字段
+            };
+            
+            // 只对有效应用进行初始化
+            if i < num_app {
+                task.task_cx = TaskContext::goto_restore(init_app_cx(i));
+                task.task_status = TaskStatus::Ready;
+            }
+            tasks.push(task);
         }
+        
+        // 转换为数组
+        let tasks_array: [TaskControlBlock; MAX_APP_NUM] = tasks.try_into()
+            .unwrap_or_else(|_| panic!("Failed to convert vector to array"));
+        
         TaskManager {
             num_app,
             inner: unsafe {
                 UPSafeCell::new(TaskManagerInner {
-                    tasks,
+                    tasks: tasks_array,
                     current_task: 0,
                 })
             },
@@ -134,6 +152,10 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+///
+    pub fn exclusive_access(&self) -> RefMut<'_, TaskManagerInner> {
+        self.inner.exclusive_access()
     }
 }
 

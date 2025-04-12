@@ -9,7 +9,7 @@
 //! For clarity, each single syscall is implemented as its own function, named
 //! `sys_` then the name of the syscall. You can find functions like this in
 //! submodules, and you should also implement syscalls this way.
-
+use crate::task::TASK_MANAGER;
 /// write syscall
 const SYSCALL_WRITE: usize = 64;
 /// exit syscall
@@ -29,6 +29,12 @@ use process::*;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+    {
+        let mut task_manager = TASK_MANAGER.exclusive_access();
+        let current_task_index = task_manager.current_task;
+        let current_task = &mut task_manager.tasks[current_task_index];
+        *current_task.syscall_counts.entry(syscall_id).or_insert(0) += 1;
+    }
     match syscall_id {
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
         SYSCALL_EXIT => sys_exit(args[0] as i32),
