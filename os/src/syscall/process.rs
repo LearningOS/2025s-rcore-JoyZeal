@@ -60,7 +60,7 @@ pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
             let current_task_index = task_manager.current_task;
             let current_task = &mut task_manager.tasks[current_task_index];
             let count = current_task.syscall_counts.entry(_id).or_insert(0);
-            *count += 1;
+            
             *count as isize
         }
         _ => -1,
